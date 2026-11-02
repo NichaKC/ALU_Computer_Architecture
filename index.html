@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ALU Lab บทที่ 3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="เลือกวงจร">
+    <div class="brand">
+      <h1>ALU Lab</h1>
+      <p>จำลองวงจรบทที่ 3 Arithmetic for Computers</p>
+      <div class="legend"><span><i style="background:var(--hi)"></i>สัญญาณ 1</span><span><i style="background:var(--lo)"></i>สัญญาณ 0</span><span><i style="background:var(--flow)"></i>เส้นทางที่ถูกเลือก</span></div>
+    </div>
+    <nav id="nav"></nav>
+  </aside>
+  <main>
+    <div class="wrap">
+      <div class="mobile-nav">
+        <label for="msel" class="note">เลือกวงจร (ALU Lab · บทที่ 3)</label>
+        <select id="msel"></select>
+      </div>
+      <header class="head">
+        <span class="chip" id="chip"></span>
+        <h2 id="title"></h2>
+        <p id="desc"></p>
+      </header>
+      <div id="stage"></div>
+    </div>
+  </main>
+</div>
+
+  <script src="js/engine.js"></script>  <!-- ตัววาดวงจร (SVG) + โครงหน้าเว็บ -->
+  <script src="js/combo.js"></script>  <!-- รูป 3.1–3.4 -->
+  <script src="js/alu.js"></script>  <!-- รูป 3.5–3.8 -->
+  <script src="js/seq.js"></script>  <!-- รูป 3.10–3.23 -->
+  <script src="js/fp.js"></script>  <!-- รูป 3.24–3.27 -->
+  <script src="js/main.js"></script>  <!-- เมนูและการสลับหน้า -->
+</body>
+</html>
