@@ -118,4 +118,6 @@ def source(circuit: str):
 
 # หน้าเว็บ (HTML/CSS/JS) — บน Vercel ไฟล์ใน public/ จะถูกเสิร์ฟผ่าน CDN อยู่แล้ว
 # บรรทัดนี้ทำให้ตอนรันในเครื่องด้วย uvicorn เปิดหน้าเว็บได้เหมือนกัน
-app.mount('/', StaticFiles(directory=os.path.join(HERE, 'public'), html=True), name='site')
+PUBLIC = os.path.join(HERE, 'public')
+if os.path.isdir(PUBLIC):
+    app.mount('/', StaticFiles(directory=PUBLIC, html=True), name='site')
