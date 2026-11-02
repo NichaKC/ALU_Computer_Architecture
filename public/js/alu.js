@@ -1,17 +1,10 @@
 "use strict";
 /* ---------- one-bit ALU (Fig 3.5) ---------- */
-function alu1(v) {
-  const bb = v.binv ? 1 - v.b : v.b;
-  const and = v.a & bb, or = v.a | bb, sum = v.a ^ bb ^ v.cin;
-  const cout = (v.a & bb) | (v.a & v.cin) | (bb & v.cin);
-  const res = [and, or, sum, v.less][v.op];
-  const ovf = (v.a & bb & (1 - sum)) | ((1 - v.a) & (1 - bb) & sum);
-  return { bb, and, or, sum, cout, res, set: sum, ovf };
-}
 const OPNAME = ['AND', 'OR', 'add', 'Less'];
 
-function drawALU1(v, msb, interactive) {
-  const r = alu1(v), g = new Sch(), op = v.op;
+/* r = ผลจาก Python alu1(): {bb, and_, or_, sum, cout, res, set, ovf} */
+function drawALU1(v, r, msb, interactive) {
+  const g = new Sch(), op = v.op;
   const k = name => interactive ? name : null;
   const P = new Set();
   if (op === 0) ['aMain', 'aAnd', 'bbOut', 'bbUp1', 'bbUp2', 'and', 'res'].forEach(x => P.add(x));
@@ -48,14 +41,14 @@ function drawALU1(v, msb, interactive) {
   g.w([[330, 205], [380 + orInd(205, 160, 60, 80), 205]], r.bb, pa('bbOr'));
   g.w([[330, 325], [330, 340], [420, 340]], r.bb, pa('bbAdd'));
   // gates
-  g.add(gAND(380, 70, 80, 60, r.and ? 'on' : ''));
-  g.add(gOR(380, 160, 80, 60, r.or ? 'on' : ''));
+  g.add(gAND(380, 70, 80, 60, r.and_ ? 'on' : ''));
+  g.add(gOR(380, 160, 80, 60, r.or_ ? 'on' : ''));
   g.add(gBOX(420, 268, 80, 94, '+', '', 't-lbl" style="font-size:22px'));
   // carry in
   g.w([[520, 42], [520, 244], [460, 244], [460, 268]], v.cin, pa('cin'));
   // outputs to main mux
-  g.w([[460, 100], [610, 100]], r.and, pa('and'));
-  g.w([[460, 190], [610 + 0, 190]], r.or, pa('or'));
+  g.w([[460, 100], [610, 100]], r.and_, pa('and'));
+  g.w([[460, 190], [610 + 0, 190]], r.or_, pa('or'));
   g.w([[77, 420], [610, 420]], v.less, pa('less'));
   if (msb) { g.w([[500, 315], [570, 315]], r.sum, p('sum')); g.d(570, 315, r.sum); g.w([[570, 315], [610, 315]], r.sum, pa('sum2')); }
   else g.w([[500, 315], [610, 315]], r.sum, pa('sum'));
@@ -90,7 +83,7 @@ function alu1Info(v, r, msb) {
   const cur = v.op === 0 && !v.binv ? 0 : v.op === 1 && !v.binv ? 1 : v.op === 2 && !v.binv && !v.cin ? 2 : v.op === 2 && v.binv && v.cin ? 3 : v.op === 3 && v.binv ? 4 : v.op === 1 && v.binv ? 5 : -1;
   return `<div class="card"><h3>สัญญาณควบคุมตามหนังสือ</h3>${ttTable(['Binvert', 'Operation', 'CarryIn', 'คำสั่ง', 'ผล'], rows, cur)}</div>
   <div class="card"><h3>ค่าภายในวงจร</h3><dl class="readout">
-   <dt>b′ (ออกจาก MUX Binvert)</dt><dd>${r.bb}</dd><dt>a AND b′</dt><dd>${r.and}</dd><dt>a OR b′</dt><dd>${r.or}</dd>
+   <dt>b′ (ออกจาก MUX Binvert)</dt><dd>${r.bb}</dd><dt>a AND b′</dt><dd>${r.and_}</dd><dt>a OR b′</dt><dd>${r.or_}</dd>
    <dt>Sum = a ⊕ b′ ⊕ CarryIn</dt><dd>${r.sum}</dd><dt>CarryOut</dt><dd>${r.cout}</dd>${msb ? `<dt>Set</dt><dd>${r.set}</dd><dt>Overflow</dt><dd>${r.ovf}</dd>` : ''}</dl>
    <p class="note" style="margin-top:8px">วงจร full adder และ logic gates ทำงานตลอดเวลา ไม่ว่า MUX จะเลือกค่าไหน (เชิงอรรถหน้า 74)</p></div>`;
 }
@@ -103,33 +96,22 @@ for (const msb of [false, true]) register({
   mount(stage) {
     const st = { a: 1, b: 1, less: 0, binv: 1, cin: 1, op: 2 };
     mountCombo(stage, {
-      state: st,
+      state: st, circuit: msb ? 'alu1msb' : 'alu1',
       controls: [{ k: 'a', label: 'a' }, { k: 'b', label: 'b' }, { k: 'less', label: 'Less' }, { k: 'binv', label: 'Binvert', ctl: true }, { k: 'cin', label: 'CarryIn', ctl: true }, { k: 'op', label: 'Operation', bits: 2, ctl: true, names: OPNAME }],
-      draw: st => drawALU1(st, msb, true),
-      readout(st) { const r = alu1(st); return `<dl class="readout"><dt>เลือก</dt><dd>${OPNAME[st.op]}</dd><dt>Result</dt><dd>${r.res}</dd>${msb ? `<dt>Set</dt><dd>${r.set}</dd><dt>Overflow</dt><dd>${flag(r.ovf)}</dd>` : `<dt>CarryOut</dt><dd>${r.cout}</dd>`}</dl>`; },
-      info: st => alu1Info(st, alu1(st), msb),
+      draw: (st, r) => drawALU1(st, r, msb, true),
+      readout(st, r) { return `<dl class="readout"><dt>เลือก</dt><dd>${OPNAME[st.op]}</dd><dt>Result</dt><dd>${r.res}</dd>${msb ? `<dt>Set</dt><dd>${r.set}</dd><dt>Overflow</dt><dd>${flag(r.ovf)}</dd>` : `<dt>CarryOut</dt><dd>${r.cout}</dd>`}</dl>`; },
+      info: (st, r) => alu1Info(st, r, msb),
     });
   }
 });
 
 /* ---------- N-bit ALU (Fig 3.6, 3.7, 3.8) ---------- */
-function aluN(st, variant) {
-  const N = st.N, A = st.A, B = st.B, binv = variant === 'zero' ? st.bneg : st.binv, cin0 = variant === 'zero' ? st.bneg : st.cin, op = st.op;
-  const bits = [];
-  let c = cin0;
-  for (let i = 0; i < N; i++) {
-    const v = { a: Math.floor(A / 2 ** i) % 2, b: Math.floor(B / 2 ** i) % 2, less: 0, binv, cin: c, op };
-    const r = alu1(v); bits.push({ v, r }); c = r.cout;
-  }
-  const msb = bits[N - 1].r, set = msb.set, ovf = msb.ovf;
-  const less0 = variant === 'slt' || variant === 'zero' ? set ^ ovf : set;
-  bits[0].v.less = less0; bits[0].r = alu1(bits[0].v);
-  let res = 0; bits.forEach((b, i) => res += b.r.res * 2 ** i);
-  return { bits, res, set, ovf, less0, cout: c, zero: res === 0 ? 1 : 0, binv, cin0 };
-}
+/* Python alu_n() คืน {cells: [[v, r], ...], res, set, ovf, less0, cout, zero, binv, cin}
+   แปลงให้อยู่ในรูปที่ฟังก์ชันวาดใช้ */
+function prepN(R) { R.bits = R.cells.map(([v, r]) => ({ v, r })); R.cin0 = R.cin; return R; }
 
-function drawALUN(st, variant) {
-  const N = st.N, R = aluN(st, variant), g = new Sch();
+function drawALUN(st, variant, R) {
+  const N = st.N, g = new Sch();
   const D = 80, BH = 60, X0 = 300, X1 = 420, Y0 = 100, yOf = i => Y0 + i * D, op = st.op;
   const zeroV = variant === 'zero', lastY = yOf(N - 1);
   const W = zeroV ? 860 : 740;
@@ -231,9 +213,10 @@ for (const variant of ['basic', 'slt', 'zero']) register({
         : { N: 4, A: 6, B: 6, binv: 1, cin: 1, op: 2, pick: 0, bneg: 1 };
     const presetOn = p => (variant === 'zero' ? st.bneg === p.binv && p.binv === p.cin : st.binv === p.binv && st.cin === p.cin) && st.op === p.op;
     mountCombo(stage, {
-      wide: true, state: st,
+      wide: true, state: st, circuit: { basic: 'alu32', slt: 'aluslt', zero: 'aluzero' }[variant],
+      payload: st => ({ N: st.N, A: st.A, B: st.B, op: st.op, binv: variant === 'zero' ? st.bneg : st.binv, cin: variant === 'zero' ? st.bneg : st.cin }),
       hint: 'คลิกบิต a/b หรือสัญญาณควบคุมบนวงจรได้ คลิกกล่อง ALUi เพื่อดูวงจรภายในด้านล่าง',
-      draw: st => drawALUN(st, variant),
+      draw: (st, R) => drawALUN(st, variant, prepN(R)),
       panel(st) {
         const N = st.N;
         const ctl = variant === 'zero'
@@ -245,8 +228,8 @@ for (const variant of ['basic', 'slt', 'zero']) register({
         <div class="ctl-group"><h3>คำสั่ง</h3><div class="btns presets">${ALU_PRESETS.filter(p => variant !== 'zero' || p.binv === p.cin).map((p, i) => `<button class="btn ${presetOn(p) ? 'on' : ''}" data-act="preset" data-v="${ALU_PRESETS.indexOf(p)}">${p.n}</button>`).join('')}</div>
         ${ctl}<div class="ctl-row"><span class="lbl ctrl">Operation</span><span class="seg">${[0, 1, 2, 3].map(v => `<button class="${st.op === v ? 'on' : ''}" data-act="set" data-k="op" data-v="${v}" title="${OPNAME[v]}">${bin(v, 2)}</button>`).join('')}</span></div></div>`;
       },
-      readout(st) {
-        const R = aluN(st, variant), N = st.N, sA = toSigned(st.A, N), sB = toSigned(st.B, N);
+      readout(st, R) {
+        prepN(R); const N = st.N, sA = toSigned(st.A, N), sB = toSigned(st.B, N);
         const sub = R.binv && R.cin0;
         let what = '';
         if (st.op === 2) what = `${sA} ${sub ? '−' : '+'} ${sub ? (sB < 0 ? `(${sB})` : sB) : (sB < 0 ? `(${sB})` : sB)} → ${toSigned(R.res, N)}`;
@@ -258,12 +241,12 @@ for (const variant of ['basic', 'slt', 'zero']) register({
           <dt>CarryOut</dt><dd>${R.cout}</dd><dt>Set (MSB)</dt><dd>${R.set}</dd><dt>Overflow</dt><dd>${flag(R.ovf)}</dd>
           ${variant !== 'basic' ? `<dt>Less₀</dt><dd>${R.less0}</dd>` : ''}${variant === 'zero' ? `<dt>Zero</dt><dd>${R.zero ? '<span class="flag n">1 (เท่ากัน)</span>' : '0'}</dd>` : ''}</dl>`;
       },
-      extra(st) {
-        const R = aluN(st, variant), i = Math.min(st.pick, st.N - 1), b = R.bits[i];
-        return `<div class="card"><h3>ภายใน ALU${i}${i === st.N - 1 ? ' (MSB)' : ''}</h3><div class="canvas" style="border:0;border-radius:8px"><div class="canvas-scroll">${drawALU1(b.v, i === st.N - 1, false)}</div></div></div>`;
+      extra(st, R) {
+        prepN(R); const i = Math.min(st.pick, st.N - 1), b = R.bits[i];
+        return `<div class="card"><h3>ภายใน ALU${i}${i === st.N - 1 ? ' (MSB)' : ''}</h3><div class="canvas" style="border:0;border-radius:8px"><div class="canvas-scroll">${drawALU1(b.v, b.r, i === st.N - 1, false)}</div></div></div>`;
       },
-      info(st) {
-        const R = aluN(st, variant), N = st.N, sA = toSigned(st.A, N), sB = toSigned(st.B, N);
+      info(st, R) {
+        prepN(R); const N = st.N, sA = toSigned(st.A, N), sB = toSigned(st.B, N);
         let h = '';
         if (variant !== 'basic' || st.op === 3) {
           const truth = sA < sB ? 1 : 0, naive = R.set, fixed = R.set ^ R.ovf;

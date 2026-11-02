@@ -70,11 +70,67 @@ const SECTIONS = {
   '3.5': '3.5 Set on less than',
   '3.6': '3.6 Multiplication',
   '3.7': '3.7 Division',
-  '3.8': '3.8 Floating Point',
 };
 function register(c) { CIRCUITS.push(c); }
 
-/* generic combinational bench */
+/* ---------- เรียก Python (logic.py) ผ่าน API ----------
+   หน้าเว็บไม่คำนวณ logic เอง: ส่งค่าอินพุตไปที่ /api/simulate แล้วนำผลที่ Python คืนมาไปวาด */
+const API_CACHE = new Map();
+async function api(circuit, inputs) {
+  const body = JSON.stringify({ circuit, inputs });
+  if (API_CACHE.has(body)) return API_CACHE.get(body);
+  const r = await fetch('/api/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  if (!r.ok) {
+    let msg = 'HTTP ' + r.status;
+    try { msg = (await r.json()).detail || msg; } catch (e) { /* ignore */ }
+    throw new Error(msg);
+  }
+  const j = await r.json();
+  API_CACHE.set(body, j);
+  return j;
+}
+function setBusy(on) { const el = document.getElementById('pybusy'); if (el) el.hidden = !on; }
+function showApiError(container, err) {
+  container.innerHTML = `<div class="callout warn" style="margin:16px"><b>เรียก Python API ไม่สำเร็จ</b><br>${esc(err.message)}<br><span class="note">ถ้าเปิดไฟล์ HTML ตรงๆ จะใช้ไม่ได้ ต้องรันผ่านเซิร์ฟเวอร์ (uvicorn app:app หรือ vercel dev) ดูวิธีใน README</span></div>`;
+}
+
+/* ---------- กล่องโชว์โค้ด Python ---------- */
+const PY_KW = new Set('def return if elif else for in range while and or not is None True False import from as lambda continue break pass class with try except raise'.split(' '));
+function highlightPy(code) {
+  const re = /("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|#[^\n]*|\b\d+\b|\b[A-Za-z_]\w*\b)/g;
+  let out = '', last = 0, m;
+  while ((m = re.exec(code))) {
+    out += esc(code.slice(last, m.index));
+    const t = m[0];
+    if (t[0] === '#') out += `<span class="py-c">${esc(t)}</span>`;
+    else if (t[0] === '"' || t[0] === "'") out += `<span class="py-s">${esc(t)}</span>`;
+    else if (/^\d/.test(t)) out += `<span class="py-n">${t}</span>`;
+    else if (PY_KW.has(t)) out += `<span class="py-k">${t}</span>`;
+    else if (code[re.lastIndex] === '(') out += `<span class="py-f">${t}</span>`;
+    else out += esc(t);
+    last = re.lastIndex;
+  }
+  return out + esc(code.slice(last));
+}
+async function mountPySource(container, circuit) {
+  container.innerHTML = `<div class="card pysrc"><h3>โค้ด Python ที่คำนวณวงจรนี้</h3><p class="note">กำลังโหลด…</p></div>`;
+  try {
+    const r = await fetch('/api/source/' + circuit);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const tabs = j.functions.map((f, i) => `<button class="${i === 0 ? 'on' : ''}" data-pytab="${i}">${esc(f.name)}()</button>`).join('');
+    container.innerHTML = `<div class="card pysrc"><h3>โค้ด Python ที่คำนวณวงจรนี้ <span class="pyfile">${esc(j.file)}</span></h3>
+      <span class="seg">${tabs}</span>${j.functions.map((f, i) => `<pre class="pycode" data-pycode="${i}" ${i ? 'hidden' : ''}><code>${highlightPy(f.code)}</code></pre>`).join('')}</div>`;
+    container.querySelectorAll('[data-pytab]').forEach(b => b.onclick = () => {
+      container.querySelectorAll('[data-pytab]').forEach(x => x.classList.toggle('on', x === b));
+      container.querySelectorAll('[data-pycode]').forEach(p => { p.hidden = p.dataset.pycode !== b.dataset.pytab; });
+    });
+  } catch (e) {
+    container.innerHTML = `<div class="card pysrc"><h3>โค้ด Python</h3><p class="note">โหลดไม่สำเร็จ: ${esc(e.message)}</p></div>`;
+  }
+}
+
+/* generic combinational bench: cfg.circuit = ชื่อวงจรฝั่ง Python, cfg.payload(st) = อินพุตที่ส่งไป */
 function mountCombo(stage, cfg) {
   const st = cfg.state;
   stage.innerHTML = `
@@ -86,40 +142,51 @@ function mountCombo(stage, cfg) {
     <div data-r="extra"></div>
     <div class="info" data-r="inf"></div>`;
   const R = k => stage.querySelector(`[data-r="${k}"]`);
-  function controlsHTML() {
+  function controlsHTML(res) {
     let h = '';
     if (cfg.controls) {
       h += `<div class="ctl-group"><h3>อินพุต</h3>`;
       for (const c of cfg.controls) {
-        if (c.hidden && c.hidden(st)) continue;
         h += `<div class="ctl-row"><span class="lbl ${c.ctl ? 'ctrl' : ''}">${c.label}</span>`;
         if ((c.bits || 1) === 1) h += `<button class="bit ${st[c.k] ? 'on' : ''}" data-act="tog" data-k="${c.k}" aria-pressed="${!!st[c.k]}">${st[c.k]}</button>`;
         else {
           h += `<span class="seg" role="group" aria-label="${esc(c.label)}">`;
-          for (let v = 0; v < 2 ** c.bits; v++) h += `<button class="${st[c.k] === v ? 'on' : ''}" data-act="set" data-k="${c.k}" data-v="${v}" title="${c.names ? c.names[v] : ''}">${c.fmt ? c.fmt(v) : bin(v, c.bits)}</button>`;
+          for (let v = 0; v < 2 ** c.bits; v++) h += `<button class="${st[c.k] === v ? 'on' : ''}" data-act="set" data-k="${c.k}" data-v="${v}" title="${c.names ? c.names[v] : ''}">${bin(v, c.bits)}</button>`;
           h += `</span>`;
         }
         h += `</div>`;
       }
       h += `<div class="btns"><button class="btn" data-act="rand">สุ่มค่า</button><button class="btn" data-act="zero">รีเซ็ตเป็น 0</button></div></div>`;
     }
-    if (cfg.panel) h += cfg.panel(st);
-    if (cfg.readout) h += `<div class="ctl-group"><h3>เอาต์พุต</h3>${cfg.readout(st)}</div>`;
+    if (cfg.panel) h += cfg.panel(st, res);
+    if (cfg.readout && res) h += `<div class="ctl-group"><h3>เอาต์พุต (คำนวณโดย Python)</h3>${cfg.readout(st, res)}</div>`;
     return h;
   }
-  function render() {
-    R('cv').innerHTML = cfg.draw(st);
-    R('pn').innerHTML = controlsHTML();
-    R('inf').innerHTML = cfg.info ? cfg.info(st) : '';
-    R('extra').innerHTML = cfg.extra ? cfg.extra(st) : '';
-    R('cvnote').textContent = cfg.note ? cfg.note(st) : '';
+  let seq = 0;
+  async function render() {
+    const my = ++seq;
+    setBusy(true);
+    let res;
+    try {
+      res = await api(cfg.circuit, cfg.payload ? cfg.payload(st) : { ...st });
+    } catch (e) {
+      if (my === seq) { setBusy(false); showApiError(R('cv'), e); R('pn').innerHTML = controlsHTML(null); }
+      return;
+    }
+    if (my !== seq) return;           // มีคำขอใหม่กว่าแล้ว ทิ้งผลเก่า
+    setBusy(false);
+    R('cv').innerHTML = cfg.draw(st, res);
+    R('pn').innerHTML = controlsHTML(res);
+    R('inf').innerHTML = cfg.info ? cfg.info(st, res) : '';
+    R('extra').innerHTML = cfg.extra ? cfg.extra(st, res) : '';
+    R('cvnote').textContent = cfg.note ? cfg.note(st, res) : '';
   }
   function handle(el) {
     const a = el.dataset.act, k = el.dataset.k, v = el.dataset.v;
     if (cfg.act && cfg.act(a, k, v, el) === true) { render(); return; }
     if (a === 'tog') {
-      const c = (cfg.controls || []).find(c => c.k === k); const bits = c ? (c.bits || 1) : 1;
-      st[k] = (st[k] + 1) % (2 ** bits);
+      const c = (cfg.controls || []).find(c => c.k === k); const nb = c ? (c.bits || 1) : 1;
+      st[k] = (st[k] + 1) % (2 ** nb);
     } else if (a === 'set') st[k] = Number(v);
     else if (a === 'rand') for (const c of cfg.controls) st[c.k] = Math.floor(Math.random() * 2 ** (c.bits || 1));
     else if (a === 'zero') for (const c of cfg.controls) st[c.k] = 0;

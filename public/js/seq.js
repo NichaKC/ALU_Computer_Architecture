@@ -37,7 +37,7 @@ function dpDraw(spec, step, prev) {
     g.w(pts, act.has(name) ? 1 : (ctl ? 'ctl' : 0), { path: act.has(name), arrow: true });
   }
   for (const r of spec.regs) g.add(regSVG(r, step.regs[r.id], prev ? prev.regs[r.id] : null, (step.changed || []).includes(r.id), r.id === spec.carryReg && step.carry));
-  for (const a of spec.alus) g.add(trapezoid(a.x, a.y, a.w, a.h, act.has(a.id) ? 'act' : '', a.label, act.has(a.id) ? step.aluOp || '' : ''));
+  for (const a of spec.alus) g.add(trapezoid(a.x, a.y, a.w, a.h, act.has(a.id) ? 'act' : '', a.label, act.has(a.id) ? step.alu_op || '' : ''));
   const c = spec.ctrl;
   g.add(`<ellipse class="blk ${step.test ? 'act' : ''}" cx="${c.cx}" cy="${c.cy}" rx="${c.rx}" ry="${c.ry}"/><text x="${c.cx}" y="${c.cy + 5}" text-anchor="middle" class="t-disp" style="font-size:14px">Control test</text>`);
   (spec.labels || []).forEach(l => g.t(l[0], l[1], l[2], 't-sm'));
@@ -83,7 +83,20 @@ function mountSeq(stage, cfg) {
   let timer = null;
   function stop() { st.playing = false; if (timer) clearInterval(timer); timer = null; }
   CLEANUP = stop;
-  function regen() { steps = cfg.gen(st.inp, st.N); st.idx = Math.min(st.idx, steps.length - 1); }
+  // ขอรายการขั้นตอนทั้งหมดจาก Python (logic.py: gen_mul1 / gen_mul2 / gen_div1 / gen_div2)
+  let reqId = 0;
+  async function reload() {
+    const my = ++reqId;
+    setBusy(true);
+    try {
+      const s = await api(cfg.circuit, { ...st.inp, N: st.N });
+      if (my !== reqId) return;
+      steps = s; st.idx = Math.min(st.idx, steps.length - 1);
+      setBusy(false); render();
+    } catch (e) {
+      if (my === reqId) { setBusy(false); showApiError(R('dp'), e); }
+    }
+  }
   function panel() {
     const N = st.N, max = 2 ** N - 1;
     let h = '';
@@ -110,7 +123,8 @@ function mountSeq(stage, cfg) {
     });
     return h + '</tbody></table></div>';
   }
-  function render(keepPanel) {
+  function render() {
+    if (!steps.length) return;        // ยังรอผลจาก Python
     const s = steps[st.idx], prev = st.idx > 0 ? steps[st.idx - 1] : null;
     R('dp').innerHTML = dpDraw(cfg.dp(st.N), s, prev);
     R('fc').innerHTML = fcDraw(cfg.fc(st.N), s);
@@ -131,8 +145,8 @@ function mountSeq(stage, cfg) {
     else if (a === 'goto') { stop(); go(Number(v)); }
     else if (a === 'speed') { st.speed = Number(v); if (st.playing) { stop(); start(); } render(); }
     else if (a === 'play') { if (st.playing) { stop(); render(); } else { if (st.idx >= steps.length - 1) st.idx = 0; start(); render(); } }
-    else if (a === 'width') { stop(); st.N = Number(v); const m = 2 ** st.N - 1; for (const k in st.inp) st.inp[k] = Math.min(st.inp[k], m); st.idx = 0; regen(); render(); }
-    else if (a === 'ex') { stop(); const e = cfg.examples[Number(v)]; st.N = e.N || st.N; Object.assign(st.inp, e.v); st.idx = 0; regen(); render(); }
+    else if (a === 'width') { stop(); st.N = Number(v); const m = 2 ** st.N - 1; for (const k in st.inp) st.inp[k] = Math.min(st.inp[k], m); st.idx = 0; reload(); }
+    else if (a === 'ex') { stop(); const e = cfg.examples[Number(v)]; st.N = e.N || st.N; Object.assign(st.inp, e.v); st.idx = 0; reload(); }
   }
   function start() {
     st.playing = true;
@@ -144,9 +158,9 @@ function mountSeq(stage, cfg) {
     const el = e.target; if (!el.matches('input.num')) return;
     stop(); const m = 2 ** st.N - 1, inp = cfg.inputs.find(i => i.k === el.dataset.k);
     st.inp[el.dataset.k] = Math.max(inp.min ?? 0, Math.min(m, Math.round(Number(el.value) || 0)));
-    st.idx = 0; regen(); render();
+    st.idx = 0; reload();
   };
-  regen(); render();
+  reload();
 }
 
 /* ---------- datapath layouts ---------- */
@@ -294,85 +308,6 @@ const FC = {
   }),
 };
 
-/* ---------- algorithms ---------- */
-function genMul1(inp, N) {
-  const M2 = 2 ** (2 * N);
-  let mc = inp.mc, mp = inp.mp, pr = 0; const S = [];
-  const snap = (o) => S.push({ ...o, regs: { mcand: mc, mplier: mp, prod: pr } });
-  snap({ iter: 0, label: 'Initialization', explain: `ตั้งค่า Multiplicand = ${inp.mc}, Multiplier = ${inp.mp}, Product = 0`, node: 'start', edges: [] });
-  for (let i = 1; i <= N; i++) {
-    if (mp & 1) { pr = (pr + mc) % M2; snap({ iter: i, label: '1a: Prod <= Prod + Mcand', explain: 'Multiplier0 = 1 จึงบวก Multiplicand เข้า Product', node: '1a', edges: ['e_t1', i === 1 ? 'e_start' : 'e_rn'], active: ['mp0', 'mc_alu', 'prod_alu', 'alu_prod', 'ctl_alu', 'ctl_write', 'alu'], aluOp: '+', test: 'Multiplier0 = 1', changed: ['prod'] }); }
-    else snap({ iter: i, label: '1: No operation', explain: 'Multiplier0 = 0 จึงไม่บวก', node: 'test', edges: [i === 1 ? 'e_start' : 'e_rn'], active: ['mp0'], test: 'Multiplier0 = 0' });
-    mc = (mc * 2) % M2; snap({ iter: i, label: '2: Shift left Mcand', explain: 'เลื่อน Multiplicand ไปทางซ้าย 1 บิต', node: 's2', edges: [S[S.length - 1].node === '1a' ? 'e_a2' : 'e_t0'], active: ['ctl_mc'], changed: ['mcand'] });
-    mp = mp >> 1; snap({ iter: i, label: '3: Shift right Mplier', explain: `เลื่อน Multiplier ไปทางขวา 1 บิต (ครบ ${i}/${N} รอบ)`, node: 's3', edges: ['e_23'], active: ['ctl_mp'], changed: ['mplier'] });
-  }
-  snap({ iter: null, label: 'Done', explain: `ครบ ${N} รอบ Product = ${pr} = ${inp.mc} × ${inp.mp}`, node: 'done', edges: ['e_3r', 'e_ry'] });
-  return S;
-}
-function genMul2(inp, N, v3) {
-  const MN = 2 ** N; let mc = inp.mc, mp = inp.mp, pr = v3 ? inp.mp : 0, carry = 0; const S = [];
-  const snap = (o) => S.push({ ...o, carry, regs: { mcand: mc, mplier: mp, prod: pr } });
-  const bit0 = () => v3 ? pr % 2 : mp & 1, tn = v3 ? 'Product0' : 'Multiplier0';
-  snap({ iter: 0, label: 'Initialization', explain: v3 ? `ใส่ Multiplier (${inp.mp}) ไว้ในครึ่งขวาของ Product` : `Multiplicand = ${inp.mc}, Multiplier = ${inp.mp}, Product = 0`, node: 'start', edges: [] });
-  for (let i = 1; i <= N; i++) {
-    const testW = v3 ? 'p0' : 'mp0';
-    if (bit0()) {
-      const left = Math.floor(pr / MN) + mc; carry = left >= MN ? 1 : 0; pr = (left % MN) * MN + pr % MN;
-      snap({ iter: i, label: v3 ? '1a: 1 => Prod = Prod + Mcand' : '1a: Prod <= Prod + Mcand', explain: `${tn} = 1 จึงบวก Multiplicand เข้าครึ่งซ้ายของ Product${carry ? ' (มีตัวทด c จะถูกเลื่อนเข้ามาตอน shift)' : ''}`, node: '1a', edges: ['e_t1', i === 1 ? 'e_start' : 'e_rn'], active: [testW, 'mc_alu', 'prod_alu', 'alu_prod', 'ctl_alu', 'ctl_write', 'alu'], aluOp: '+', test: `${tn} = 1`, changed: ['prod'] });
-    } else snap({ iter: i, label: v3 ? '1: 0 => no operation' : '1: No operation', explain: `${tn} = 0 จึงไม่บวก`, node: 'test', edges: [i === 1 ? 'e_start' : 'e_rn'], active: [testW], test: `${tn} = 0` });
-    const was1a = S[S.length - 1].node === '1a';
-    pr = Math.floor(pr / 2) + carry * 2 ** (2 * N - 1); carry = 0;
-    snap({ iter: i, label: '2: Shift right Product', explain: 'เลื่อน Product ไปทางขวา 1 บิต' + (v3 ? ` (ครบ ${i}/${N} รอบ)` : ''), node: 's2', edges: [was1a ? 'e_a2' : 'e_t0'], active: ['ctl_shift'], changed: ['prod'] });
-    if (!v3) { mp = mp >> 1; snap({ iter: i, label: '3: Shift right Mplier', explain: `เลื่อน Multiplier ไปทางขวา 1 บิต (ครบ ${i}/${N} รอบ)`, node: 's3', edges: ['e_23'], active: ['ctl_mp'], changed: ['mplier'] }); }
-  }
-  snap({ iter: null, label: 'Done', explain: `Product = ${pr} = ${inp.mc} × ${inp.mp}`, node: 'done', edges: [v3 ? 'e_2r' : 'e_3r', 'e_ry'] });
-  return S;
-}
-function genDiv1(inp, N) {
-  const M2 = 2 ** (2 * N), MN = 2 ** N; let dv = inp.dvs * MN, rm = inp.dvd, q = 0; const S = [];
-  const snap = (o) => S.push({ ...o, regs: { div: dv, rem: rm, quot: q } });
-  snap({ iter: 0, label: 'Initial values', explain: `Divisor (${inp.dvs}) อยู่ครึ่งซ้ายของ Divisor register, Remainder = Dividend (${inp.dvd})`, node: 'start', edges: [] });
-  if (inp.dvs === 0) { snap({ iter: null, label: 'หารด้วยศูนย์', explain: 'Divisor = 0 ฮาร์ดแวร์จริงต้องตรวจจับกรณีนี้แยก (MIPS ให้ซอฟต์แวร์ตรวจ)', node: 'start', edges: [] }); return S; }
-  for (let i = 1; i <= N + 1; i++) {
-    const neg = rm < dv;
-    rm = (rm - dv + M2) % M2;
-    snap({ iter: i, label: '1: Rem = Rem − Div', explain: neg ? 'ลบ Divisor ออกจาก Remainder ได้ค่าติดลบ (เขียนแบบ two\'s complement)' : 'ลบ Divisor ออกจาก Remainder', node: 's1', edges: [i === 1 ? 'e_start' : 'e_rn'], active: ['div_alu', 'rem_alu', 'alu_rem', 'ctl_alu', 'ctl_write', 'alu'], aluOp: '−', changed: ['rem'] });
-    if (!neg) { q = (q * 2 + 1) % MN; snap({ iter: i, label: '2a: Rem ≥ 0 ⟹ sll Q, Q0 = 1', explain: 'ผลลบไม่ติดลบ (บิตบนสุด = 0) จึงเลื่อน Quotient ซ้ายแล้วใส่ 1', node: '2a', edges: ['e_1t', 'e_ta'], active: ['rem_sign', 'ctl_q'], test: 'Remainder ≥ 0', changed: ['quot'] }); }
-    else { rm = (rm + dv) % M2; q = (q * 2) % MN; snap({ iter: i, label: '2b: Rem < 0 ⟹ +Div, sll Q, Q0 = 0', explain: 'ผลลบติดลบ จึงบวก Divisor คืน (restore) แล้วเลื่อน Quotient ซ้ายใส่ 0', node: '2b', edges: ['e_1t', 'e_tb'], active: ['rem_sign', 'div_alu', 'rem_alu', 'alu_rem', 'ctl_alu', 'ctl_write', 'ctl_q', 'alu'], aluOp: '+', test: 'Remainder < 0', changed: ['rem', 'quot'] }); }
-    dv = Math.floor(dv / 2);
-    snap({ iter: i, label: '3: Shift Div right', explain: `เลื่อน Divisor ไปทางขวา 1 บิต (ครบ ${i}/${N + 1} รอบ)`, node: 's3', edges: [neg ? 'e_b3' : 'e_a3'], active: ['ctl_div'], changed: ['div'] });
-  }
-  snap({ iter: null, label: 'Done', explain: `Quotient = ${q}, Remainder = ${rm}  (${inp.dvd} = ${q} × ${inp.dvs} + ${rm})`, node: 'done', edges: ['e_3r', 'e_ry'] });
-  return S;
-}
-function genDiv2(inp, N) {
-  const MN = 2 ** N; let dv = inp.dvs, rm = inp.dvd, carry = 0; const S = [];
-  const view = () => rm % (MN * MN);
-  const snap = (o) => S.push({ ...o, carry: rm >= MN * MN ? 1 : 0, regs: { div: dv, rem: view() } });
-  snap({ iter: 0, label: 'Initial values', explain: `Remainder = Dividend (${inp.dvd}) อยู่ครึ่งขวา, Divisor = ${inp.dvs}`, node: 'start', edges: [] });
-  if (dv === 0) { snap({ iter: null, label: 'หารด้วยศูนย์', explain: 'Divisor = 0 ต้องตรวจจับแยก', node: 'start', edges: [] }); return S; }
-  rm = rm * 2;
-  snap({ iter: 0, label: '0: Shift Rem left', explain: 'เลื่อน Remainder ทั้งก้อนไปทางซ้าย 1 บิตก่อนเริ่มวน', node: 's0', edges: ['e_start'], active: ['ctl_shift'], changed: ['rem'] });
-  for (let i = 1; i <= N; i++) {
-    const left = Math.floor(rm / MN), right = rm % MN, diff = left - dv;
-    if (diff >= 0) {
-      rm = diff * MN + right;
-      snap({ iter: i, label: '1: Rem.left = Rem.left − Div', explain: 'ลบ Divisor ออกจากครึ่งซ้ายของ Remainder', node: 's1', edges: [i === 1 ? 'e_01' : 'e_rn'], active: ['div_alu', 'rem_alu', 'alu_rem', 'ctl_alu', 'ctl_write', 'alu'], aluOp: '−', changed: ['rem'] });
-      rm = rm * 2 + 1;
-      snap({ iter: i, label: '2a: Rem ≥ 0 ⟹ sll Rem, R0 = 1', explain: 'ผลลบไม่ติดลบ: เลื่อน Remainder ซ้ายแล้วใส่ 1 ที่บิตขวาสุด', node: '2a', edges: ['e_1t', 'e_ta'], active: ['rem_sign', 'ctl_shift'], test: 'Remainder ≥ 0', changed: ['rem'] });
-    } else {
-      const shown = ((diff % MN) + MN) % MN;
-      S.push({ iter: i, label: '1: Rem.left = Rem.left − Div', explain: `ลบ Divisor ออกจากครึ่งซ้าย ได้ค่าติดลบ (${diff})`, node: 's1', edges: [i === 1 ? 'e_01' : 'e_rn'], active: ['div_alu', 'rem_alu', 'alu_rem', 'ctl_alu', 'ctl_write', 'alu'], aluOp: '−', changed: ['rem'], carry: 0, regs: { div: dv, rem: shown * MN + right } });
-      rm = rm * 2;
-      snap({ iter: i, label: '2b: Rem < 0 ⟹ +Div, sll Rem, R0 = 0', explain: 'ติดลบ: บวก Divisor คืน (restore) แล้วเลื่อน Remainder ซ้ายใส่ 0', node: '2b', edges: ['e_1t', 'e_tb'], active: ['rem_sign', 'div_alu', 'rem_alu', 'alu_rem', 'ctl_alu', 'ctl_write', 'ctl_shift', 'alu'], aluOp: '+', test: 'Remainder < 0', changed: ['rem'] });
-    }
-  }
-  const left = Math.floor(rm / MN), right = rm % MN; rm = Math.floor(left / 2) * MN + right;
-  snap({ iter: null, label: 'Shift left half right', explain: 'เลื่อนครึ่งซ้ายกลับไปทางขวา 1 บิต เพื่อชดเชยการเลื่อนเกินหนึ่งครั้ง', node: 's3', edges: ['e_ry'], active: ['ctl_shift'], changed: ['rem'] });
-  snap({ iter: null, label: 'Done', explain: `ครึ่งซ้าย = Remainder = ${Math.floor(rm / MN)}, ครึ่งขวา = Quotient = ${rm % MN}`, node: 'done', edges: ['e_3d'] });
-  return S;
-}
-
 /* bit cells with change highlight for tables */
 function bitCell(val, prevVal, n, opts = {}) {
   const b = bin(val, n), p = prevVal == null ? null : bin(prevVal, n);
@@ -396,7 +331,7 @@ register({
     mountSeq(stage, {
       defaults: { mc: 2, mp: 3 }, widths: [4, 8], examples: MUL_EX,
       inputs: [{ k: 'mc', label: 'Multiplicand (ตัวตั้ง)' }, { k: 'mp', label: 'Multiplier (ตัวคูณ)' }],
-      gen: genMul1, dp: DP.mul1, fc: N => FC.mul(N, 1), tableTitle: 'Table 3.6 ตัวอย่างการคูณ',
+      circuit: 'mul1', dp: DP.mul1, fc: N => FC.mul(N, 1), tableTitle: 'Table 3.6 ตัวอย่างการคูณ',
       cols: () => ['Iter', 'Step', 'Multiplier', 'Multiplicand', 'Product'],
       row: (s, p, N) => [s.iter ?? '', s.label, bitCell(s.regs.mplier, p?.regs.mplier, N), bitCell(s.regs.mcand, p?.regs.mcand, 2 * N), bitCell(s.regs.prod, p?.regs.prod, 2 * N)],
       readout: (S, st) => { const s = S[st.idx]; return `<dl class="readout"><dt>Product ตอนนี้</dt><dd>${bin(s.regs.prod, 2 * st.N)} = ${s.regs.prod}</dd><dt>คำตอบที่ถูก</dt><dd>${st.inp.mc} × ${st.inp.mp} = ${st.inp.mc * st.inp.mp}</dd></dl>`; },
@@ -412,7 +347,7 @@ register({
     mountSeq(stage, {
       defaults: { mc: 2, mp: 3 }, widths: [4, 8], examples: MUL_EX,
       inputs: [{ k: 'mc', label: 'Multiplicand (ตัวตั้ง)' }, { k: 'mp', label: 'Multiplier (ตัวคูณ)' }],
-      gen: (i, N) => genMul2(i, N, false), dp: DP.mul2, fc: N => FC.mul(N, 2), tableTitle: 'ตัวอย่างการคูณด้วยอัลกอริทึมแบบที่ 2 (Fig 3.14)',
+      circuit: 'mul2', dp: DP.mul2, fc: N => FC.mul(N, 2), tableTitle: 'ตัวอย่างการคูณด้วยอัลกอริทึมแบบที่ 2 (Fig 3.14)',
       cols: () => ['Iter', 'Step', 'Multiplier', 'Multiplicand', 'Product'],
       row: (s, p, N) => [s.iter ?? '', s.label, bitCell(s.regs.mplier, p?.regs.mplier, N), bitCell(s.regs.mcand, null, N), bitCell(s.regs.prod, p?.regs.prod, 2 * N, { split: true }) + (s.carry ? ' <span class="dim">c=1</span>' : '')],
       readout: (S, st) => { const s = S[st.idx]; return `<dl class="readout"><dt>Product ตอนนี้</dt><dd>${bin(s.regs.prod, 2 * st.N)} = ${s.regs.prod}</dd><dt>คำตอบที่ถูก</dt><dd>${st.inp.mc} × ${st.inp.mp} = ${st.inp.mc * st.inp.mp}</dd></dl>`; },
@@ -428,7 +363,7 @@ register({
     mountSeq(stage, {
       defaults: { mc: 2, mp: 3 }, widths: [4, 8], examples: MUL_EX,
       inputs: [{ k: 'mc', label: 'Multiplicand (ตัวตั้ง)' }, { k: 'mp', label: 'Multiplier (ตัวคูณ)' }],
-      gen: (i, N) => genMul2(i, N, true), dp: DP.mul3, fc: N => FC.mul(N, 3), tableTitle: 'Fig 3.18 ตัวอย่างการคูณแบบที่ 3',
+      circuit: 'mul3', dp: DP.mul3, fc: N => FC.mul(N, 3), tableTitle: 'Fig 3.18 ตัวอย่างการคูณแบบที่ 3',
       cols: () => ['Iter', 'Step', 'Multiplicand', 'Product'],
       row: (s, p, N) => [s.iter ?? '', s.label, bitCell(s.regs.mcand, null, N), bitCell(s.regs.prod, p?.regs.prod, 2 * N, { split: true }) + (s.carry ? ' <span class="dim">c=1</span>' : '')],
       readout: (S, st) => { const s = S[st.idx]; return `<dl class="readout"><dt>Product ตอนนี้</dt><dd>${bin(s.regs.prod, 2 * st.N)} = ${s.regs.prod}</dd><dt>คำตอบที่ถูก</dt><dd>${st.inp.mc} × ${st.inp.mp} = ${st.inp.mc * st.inp.mp}</dd></dl>`; },
@@ -445,7 +380,7 @@ register({
     mountSeq(stage, {
       defaults: { dvd: 7, dvs: 2 }, widths: [4, 8], examples: DIV_EX,
       inputs: [{ k: 'dvd', label: 'Dividend (ตัวตั้ง)' }, { k: 'dvs', label: 'Divisor (ตัวหาร)', min: 0 }],
-      gen: genDiv1, dp: DP.div1, fc: FC.div1, tableTitle: 'Fig 3.22 ตัวอย่างการหาร',
+      circuit: 'div1', dp: DP.div1, fc: FC.div1, tableTitle: 'Fig 3.22 ตัวอย่างการหาร',
       cols: () => ['Iter', 'Step', 'Quotient', 'Divisor', 'Remainder'],
       row: (s, p, N) => [s.iter ?? '', s.label, bitCell(s.regs.quot, p?.regs.quot, N), bitCell(s.regs.div, p?.regs.div, 2 * N, { split: true }), bitCell(s.regs.rem, p?.regs.rem, 2 * N, { split: true })],
       readout: (S, st) => { const d = st.inp.dvs; return `<dl class="readout"><dt>คำตอบที่ถูก</dt><dd>${d ? `${st.inp.dvd} ÷ ${d} = ${Math.floor(st.inp.dvd / d)} เศษ ${st.inp.dvd % d}` : 'หารด้วย 0 ไม่ได้'}</dd></dl>`; },
@@ -461,7 +396,7 @@ register({
     mountSeq(stage, {
       defaults: { dvd: 7, dvs: 2 }, widths: [4, 8], examples: DIV_EX,
       inputs: [{ k: 'dvd', label: 'Dividend (ตัวตั้ง)' }, { k: 'dvs', label: 'Divisor (ตัวหาร)', min: 0 }],
-      gen: genDiv2, dp: DP.div2, fc: FC.div2, tableTitle: 'ลำดับการทำงาน',
+      circuit: 'div2', dp: DP.div2, fc: FC.div2, tableTitle: 'ลำดับการทำงาน',
       cols: () => ['Iter', 'Step', 'Divisor', 'Remainder (ซ้าย | ขวา)'],
       row: (s, p, N) => [s.iter ?? '', s.label, bitCell(s.regs.div, null, N), bitCell(s.regs.rem, p?.regs.rem, 2 * N, { split: true }) + (s.carry ? ' <span class="dim">+1 บิตบน</span>' : '')],
       readout: (S, st) => { const d = st.inp.dvs; return `<dl class="readout"><dt>คำตอบที่ถูก</dt><dd>${d ? `${st.inp.dvd} ÷ ${d} = ${Math.floor(st.inp.dvd / d)} เศษ ${st.inp.dvd % d}` : 'หารด้วย 0 ไม่ได้'}</dd></dl>`; },

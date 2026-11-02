@@ -23,6 +23,10 @@
     msel.value = c.id;
     stage.onclick = stage.onchange = stage.onkeydown = null;
     c.mount(stage);
+    // กล่องโค้ด Python ของวงจรนี้ (ดึงจาก /api/source)
+    const py = document.createElement('div');
+    stage.appendChild(py);
+    mountPySource(py, c.id);
   }
   window.addEventListener('hashchange', show);
   show();

@@ -162,15 +162,6 @@ svg .sw{stroke:var(--ink);stroke-width:2.4;fill:none;stroke-linecap:round}
 .stepinfo{font-family:var(--f-mono);font-size:13px;color:var(--muted)}
 .steptitle{font-family:var(--f-disp);font-size:17px;font-weight:600;margin:0}
 .two{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:18px;align-items:start}
-.fp-bits{display:flex;gap:2px;flex-wrap:wrap;font-family:var(--f-mono)}
-.fp-bits button{width:24px;height:34px;border:1px solid var(--rule);border-radius:4px;background:var(--panel-2);font-family:var(--f-mono);font-weight:700;font-size:14px;cursor:pointer;padding:0;position:relative}
-.fp-bits button.s{box-shadow:inset 0 -4px 0 var(--warn)}
-.fp-bits button.e{box-shadow:inset 0 -4px 0 var(--ctrl)}
-.fp-bits button.f{box-shadow:inset 0 -4px 0 var(--bus)}
-.fp-bits button.on{background:var(--ink);color:var(--bg)}
-.fp-bits .gap{width:8px}
-.fp-legend{display:flex;gap:14px;font-size:12.5px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
-.fp-legend i{display:inline-block;width:12px;height:4px;margin-right:5px;vertical-align:middle}
 
 @media (max-width:1100px){.bench{grid-template-columns:minmax(0,1fr)}.two{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:860px){
@@ -180,3 +171,15 @@ svg .sw{stroke:var(--ink);stroke-width:2.4;fill:none;stroke-linecap:round}
   .mobile-nav select{padding:9px 10px;border-radius:8px;border:1.5px solid var(--rule);background:var(--panel);font-size:15px}
 }
 @media (prefers-reduced-motion: reduce){svg .flow{animation:none;stroke-dasharray:none;opacity:.8}}
+
+/* Python API additions */
+.headrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.pybadge{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--hi-soft);color:var(--hi);font-weight:600}
+.pysrc .seg{margin:4px 0 10px}
+.pyfile{font-family:var(--f-mono);font-size:12px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400}
+.pycode{margin:0;background:#0f1720;color:#dbe3ea;border-radius:10px;padding:14px 16px;overflow:auto;max-height:520px;font-family:var(--f-mono);font-size:13px;line-height:1.55;tab-size:4}
+.pycode .py-k{color:#ff9b45;font-weight:600}
+.pycode .py-s{color:#9ad18b}
+.pycode .py-c{color:#7f8c99;font-style:italic}
+.pycode .py-n{color:#7cc4ff}
+.pycode .py-f{color:#ffd166}

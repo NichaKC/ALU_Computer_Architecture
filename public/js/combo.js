@@ -7,18 +7,14 @@ register({
   mount(stage) {
     const st = { A: 1, B: 0, C: 1, D: 0, S: 2 };
     mountCombo(stage, {
-      wide: true,
+      wide: true, circuit: 'mux',
       state: st,
       controls: [
         { k: 'A', label: 'A' }, { k: 'B', label: 'B' }, { k: 'C', label: 'C' }, { k: 'D', label: 'D' },
         { k: 'S', label: 'S[1:0]', bits: 2, ctl: true },
       ],
-      draw(st) {
-        const s1 = st.S >> 1 & 1, s0 = st.S & 1, n1 = 1 - s1, n0 = 1 - s0;
-        const data = [st.A, st.B, st.C, st.D], names = ['A', 'B', 'C', 'D'];
-        const top = [n0, s0, n0, s0], mid = [n1, n1, s1, s1];
-        const ands = data.map((d, i) => d & top[i] & mid[i]);
-        const Y = ands.some(Boolean) ? 1 : 0, sel = st.S;
+      draw(st, r) {
+        const { s1, s0, n1, n0, data, top, mid, ands, Y } = r, sel = st.S, names = ['A', 'B', 'C', 'D'];
         const g = new Sch();
         // ---- symbol view
         g.t(40, 20, 'MUX symbol', 't-disp', 'start', 'style="font-size:14px;fill:var(--muted)"');
@@ -61,12 +57,11 @@ register({
       act(a, k) {
         if (a === 'tog' && (k === 'S1' || k === 'S0')) { st.S ^= (k === 'S1' ? 2 : 1); return true; }
       },
-      readout(st) {
-        const Y = [st.A, st.B, st.C, st.D][st.S];
-        return `<dl class="readout"><dt>เลือกอินพุต</dt><dd>${'ABCD'[st.S]} (S = ${bin(st.S, 2)})</dd><dt>Y</dt><dd>${Y}</dd></dl>`;
+      readout(st, r) {
+        return `<dl class="readout"><dt>เลือกอินพุต</dt><dd>${'ABCD'[st.S]} (S = ${bin(st.S, 2)})</dd><dt>Y</dt><dd>${r.Y}</dd></dl>`;
       },
-      info(st) {
-        const rows = [0, 1, 2, 3].map(s => [bin(s, 2), 'ABCD'[s], `Y = ${'ABCD'[s]} = ${[st.A, st.B, st.C, st.D][s]}`]);
+      info(st, r) {
+        const rows = r.table.map(([s, n, v]) => [s, n, `Y = ${n} = ${v}`]);
         return `<div class="card"><h3>ตารางการเลือก</h3>${ttTable(['S[1:0]', 'ส่งผ่าน', 'ค่าตอนนี้'], rows, st.S)}</div>
         <div class="card"><h3>สมการตรรกะ</h3><div class="eq">Y = A·S̄₁·S̄₀ + B·S̄₁·S₀ + C·S₁·S̄₀ + D·S₁·S₀</div>
         <p class="note">AND แต่ละตัวจะเปิดได้แค่ตัวเดียวตามค่า S จึงมีข้อมูลจากอินพุตเดียวที่ผ่านไปถึง OR</p></div>`;
@@ -83,10 +78,10 @@ register({
   mount(stage) {
     const st = { a: 1, b: 0, op: 1 };
     mountCombo(stage, {
-      state: st,
+      state: st, circuit: 'logic',
       controls: [{ k: 'a', label: 'a' }, { k: 'b', label: 'b' }, { k: 'op', label: 'Operation', ctl: true }],
-      draw(st) {
-        const and = st.a & st.b, or = st.a | st.b, R = st.op ? or : and, g = new Sch();
+      draw(st, r) {
+        const and = r.and_, or = r.or_, R = r.result, g = new Sch();
         const pA = st.op === 0, pO = st.op === 1;
         g.add(pin(60, 90, { name: 'a', val: st.a, key: 'a' }));
         g.add(pin(60, 230, { name: 'b', val: st.b, key: 'b' }));
@@ -107,10 +102,9 @@ register({
         g.add(pin(590, 165, { name: 'Result', val: R, side: 'right' }));
         return g.svg(700, 290);
       },
-      readout(st) { const R = st.op ? st.a | st.b : st.a & st.b; return `<dl class="readout"><dt>a AND b</dt><dd>${st.a & st.b}</dd><dt>a OR b</dt><dd>${st.a | st.b}</dd><dt>Result</dt><dd>${R} (${st.op ? 'OR' : 'AND'})</dd></dl>`; },
-      info(st) {
-        const rows = []; for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) rows.push([a, b, a & b, a | b]);
-        return `<div class="card"><h3>ตารางความจริง</h3>${ttTable(['a', 'b', 'AND (Op=0)', 'OR (Op=1)'], rows, st.a * 2 + st.b)}</div>
+      readout(st, r) { return `<dl class="readout"><dt>a AND b</dt><dd>${r.and_}</dd><dt>a OR b</dt><dd>${r.or_}</dd><dt>Result</dt><dd>${r.result} (${st.op ? 'OR' : 'AND'})</dd></dl>`; },
+      info(st, r) {
+        return `<div class="card"><h3>ตารางความจริง</h3>${ttTable(['a', 'b', 'AND (Op=0)', 'OR (Op=1)'], r.table, st.a * 2 + st.b)}</div>
         <div class="card"><h3>หมายเหตุจากหนังสือ</h3><p class="note">วงจร AND และ OR ทำงานตลอดเวลา MUX แค่เลือกว่าจะส่งผลตัวไหนออกไปที่ Result เส้นสีเหลืองคือเส้นทางที่ MUX เลือกอยู่</p></div>`;
       },
     });
@@ -125,10 +119,10 @@ register({
   mount(stage) {
     const st = { a: 1, b: 1 };
     mountCombo(stage, {
-      wide: true, state: st,
+      wide: true, state: st, circuit: 'nand',
       controls: [{ k: 'a', label: 'A' }, { k: 'b', label: 'B' }],
-      draw(st) {
-        const a = st.a, b = st.b, F = 1 - (a & b), g = new Sch();
+      draw(st, r) {
+        const a = st.a, b = st.b, F = r.F, g = new Sch();
         const H = 't-disp" style="font-size:13.5px;fill:var(--muted)';
         // 1) symbol
         g.t(30, 30, 'NAND gate symbol', H);
@@ -138,7 +132,7 @@ register({
         g.w([[220, 105], [256, 105]], F); g.add(pin(276, 105, { name: 'F', val: F, side: 'bottom', w: 28 }));
         // 2) transistor level
         g.t(30, 205, 'Transistor level (NMOS)', H);
-        const X = 180, both = a & b;
+        const X = 180, both = r.both;
         g.t(X, 232, 'Vcc', 't-lbl', 'middle');
         g.w([[X, 240], [X, 252]], 1, { path: true });
         g.add(`<polyline class="sw" points="${X},252 ${X + 9},257 ${X - 9},264 ${X + 9},271 ${X - 9},278 ${X + 9},285 ${X},290"/>`);
@@ -165,13 +159,13 @@ register({
         const nand = (x, y, w, h, out) => g.add(gAND(x, y, w, h, out ? 'on' : '')).add(bubble(x + w, y + h / 2));
         // NOT
         g.t(380, 30, 'logical NOT: ¬(A·A) = Ā', H);
-        const na = 1 - a;
+        const na = r.na;
         g.add(pin(400, 80, { name: 'A', val: a, key: 'a', w: 28 })); g.w([[414, 80], [450, 80]], a, { path: true }); g.d(450, 80, a);
         g.w([[450, 80], [450, 66], [520, 66]], a, { path: true }); g.w([[450, 80], [450, 94], [520, 94]], a, { path: true });
         nand(520, 52, 70, 56, na); g.w([[600, 80], [700, 80]], na, { path: true }); g.add(pin(722, 80, { name: 'Ā', val: na, side: 'right', w: 28 }));
         // AND
         g.t(380, 150, 'logical AND: ¬(¬(A·B)) = A·B', H);
-        const n1 = 1 - (a & b), ab = a & b;
+        const n1 = r.n1, ab = r.ab;
         g.add(pin(400, 190, { name: 'A', val: a, key: 'a', w: 28 })); g.add(pin(400, 240, { name: 'B', val: b, key: 'b', w: 28 }));
         g.w([[414, 190], [480, 190]], a, { path: true }); g.w([[414, 240], [480, 240]], b, { path: true });
         nand(480, 175, 76, 80, n1);
@@ -181,7 +175,7 @@ register({
         g.add(pin(764, 215, { name: 'A·B', val: ab, side: 'right', w: 28 }));
         // OR
         g.t(380, 290, 'logical OR: ¬(Ā·B̄) = A+B (de Morgan)', H);
-        const nb = 1 - b, aob = a | b;
+        const nb = r.nb, aob = r.aob;
         g.add(pin(400, 335, { name: 'A', val: a, key: 'a', w: 28 })); g.add(pin(400, 425, { name: 'B', val: b, key: 'b', w: 28 }));
         g.w([[414, 335], [450, 335]], a, { path: true }); g.d(450, 335, a);
         g.w([[450, 335], [450, 324], [490, 324]], a, { path: true }); g.w([[450, 335], [450, 346], [490, 346]], a, { path: true });
@@ -195,10 +189,9 @@ register({
         g.add(pin(764, 385, { name: 'A+B', val: aob, side: 'right', w: 28 }));
         return g.svg(860, 470);
       },
-      readout(st) { const a = st.a, b = st.b; return `<dl class="readout"><dt>NAND</dt><dd>${1 - (a & b)}</dd><dt>NOT A</dt><dd>${1 - a}</dd><dt>A·B</dt><dd>${a & b}</dd><dt>A+B</dt><dd>${a | b}</dd></dl>`; },
-      info(st) {
-        const rows = []; for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) rows.push([a, b, 1 - (a & b)]);
-        return `<div class="card"><h3>ตารางความจริง NAND</h3>${ttTable(['A', 'B', 'F = ¬(A·B)'], rows, st.a * 2 + st.b)}</div>
+      readout(st, r) { return `<dl class="readout"><dt>NAND</dt><dd>${r.F}</dd><dt>NOT A</dt><dd>${r.na}</dd><dt>A·B</dt><dd>${r.ab}</dd><dt>A+B</dt><dd>${r.aob}</dd></dl>`; },
+      info(st, r) {
+        return `<div class="card"><h3>ตารางความจริง NAND</h3>${ttTable(['A', 'B', 'F = ¬(A·B)'], r.table, st.a * 2 + st.b)}</div>
         <div class="card"><h3>ทรานซิสเตอร์ NMOS</h3><p class="note">เมื่อจ่ายแรงดันบวกพอที่ขา gate จะเกิด n-channel ให้กระแสไหลระหว่าง source กับ drain ได้ (แสดงเป็นสวิตช์ ON) ถ้าสวิตช์ทั้งสองตัว ON พร้อมกัน F ต่อลงกราวด์จึงเป็น 0</p></div>`;
       },
     });
@@ -213,10 +206,10 @@ register({
   mount(stage) {
     const st = { a: 1, b: 0, ci: 1 };
     mountCombo(stage, {
-      state: st,
+      state: st, circuit: 'fa',
       controls: [{ k: 'a', label: 'a' }, { k: 'b', label: 'b' }, { k: 'ci', label: 'CarryIn', ctl: true }],
-      draw(st) {
-        const { a, b, ci } = st, x1 = a ^ b, s = x1 ^ ci, ab = a & b, ac = a & ci, bc = b & ci, co = ab | ac | bc;
+      draw(st, r) {
+        const { a, b, ci } = st, { x1, s, ab, ac, bc, co } = r;
         const g = new Sch();
         g.add(pin(56, 80, { name: 'a', val: a, key: 'a' })); g.add(pin(56, 140, { name: 'b', val: b, key: 'b' })); g.add(pin(56, 200, { name: 'cᵢ', val: ci, key: 'ci', ctl: true }));
         const X1 = [250, 60, 82, 110];
@@ -244,10 +237,9 @@ register({
         g.t(520, 270, 'a·b', 't-sm'); g.t(520, 330, 'a·cᵢ', 't-sm'); g.t(520, 412, 'b·cᵢ', 't-sm');
         return g.svg(760, 450);
       },
-      readout(st) { const t = st.a + st.b + st.ci; return `<dl class="readout"><dt>a + b + cᵢ</dt><dd>${st.a} + ${st.b} + ${st.ci} = ${t} (= ${bin(t, 2)}₂)</dd><dt>Sum</dt><dd>${t & 1}</dd><dt>CarryOut</dt><dd>${t >> 1}</dd></dl>`; },
-      info(st) {
-        const rows = []; for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let c = 0; c < 2; c++) { const t = a + b + c; rows.push([a, b, c, t >> 1, t & 1, `${a} + ${b} + ${c} = ${bin(t, 2)}`]); }
-        return `<div class="card"><h3>Table 3.3 ตารางตรรกะ full adder</h3>${ttTable(['a', 'b', 'cᵢ', 'cₒ', 's', '(base 2)'], rows, st.a * 4 + st.b * 2 + st.ci)}</div>
+      readout(st, r) { return `<dl class="readout"><dt>a + b + cᵢ</dt><dd>${st.a} + ${st.b} + ${st.ci} = ${r.total} (= ${bin(r.total, 2)}₂)</dd><dt>Sum</dt><dd>${r.s}</dd><dt>CarryOut</dt><dd>${r.co}</dd></dl>`; },
+      info(st, r) {
+        return `<div class="card"><h3>Table 3.3 ตารางตรรกะ full adder</h3>${ttTable(['a', 'b', 'cᵢ', 'cₒ', 's', '(base 2)'], r.table, st.a * 4 + st.b * 2 + st.ci)}</div>
         <div class="card"><h3>สมการ 3.13–3.15</h3><div class="eq">s = ā·b̄·cᵢ + ā·b·c̄ᵢ + a·b̄·c̄ᵢ + a·b·cᵢ</div><div class="eq">s = a ⊕ b ⊕ cᵢ</div><div class="eq">cₒ = b·cᵢ + a·b + a·cᵢ</div><p class="note">วงจร Sum ใช้ XOR สองตัวต่อกัน ส่วน CarryOut คือ AND สามตัวรวมกันด้วย OR (เป็น 1 เมื่อมีอินพุตเป็น 1 อย่างน้อยสองตัว)</p></div>`;
       },
     });
